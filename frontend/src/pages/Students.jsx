@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { studentsApi, reportsApi } from '../api'
-import { UserPlus, Search, Trash2, Camera, Upload, CheckCircle, X, Download, Users, LayoutGrid } from 'lucide-react'
+import { UserPlus, Search, Trash2, Camera, Upload, CheckCircle, X, Download, Users, LayoutGrid, Edit, Save, XCircle } from 'lucide-react'
 import clsx from 'clsx'
 
 const EMPTY_FORM = { name: '', student_id: '', class_name: 'Class A', email: '', phone: '' }
 
 export default function Students() {
-  const [tab,       setTab]       = useState('students') // 'students' | 'classes'
+  const [tab,       setTab]       = useState('students')
   const [students,  setStudents]  = useState([])
   const [classes,   setClasses]   = useState([])
   const [search,    setSearch]    = useState('')
@@ -18,6 +18,11 @@ export default function Students() {
   const [enrollId,  setEnrollId]  = useState(null)
   const [enrollMsg, setEnrollMsg] = useState('')
   const [exporting, setExporting] = useState('')
+  const [editingStudent, setEditingStudent] = useState(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({})
+  const [updating, setUpdating] = useState(false)
+  const [updateError, setUpdateError] = useState('')
   const fileRef   = useRef()
   const webcamRef = useRef()
   const streamRef = useRef()
@@ -29,6 +34,7 @@ export default function Students() {
         setStudents(s.data)
         setClasses(c.data)
       })
+      .catch(err => console.error('Load error:', err))
       .finally(() => setLoading(false))
   }
 
@@ -39,7 +45,6 @@ export default function Students() {
     s.student_id.toLowerCase().includes(search.toLowerCase())
   )
 
-  // Build class summary from students
   const classSummary = classes.map(c => {
     const classStudents = students.filter(s => s.class_name === c.class_name)
     const enrolled = classStudents.filter(s => s.enrolled).length
@@ -51,6 +56,7 @@ export default function Students() {
     }
   })
 
+  // CREATE - Add new student
   const handleSubmit = async () => {
     if (!form.name || !form.student_id || !form.class_name) return
     setSaving(true)
@@ -64,13 +70,51 @@ export default function Students() {
     } finally { setSaving(false) }
   }
 
-  const handleDelete = async (id, name) => {
-    if (!confirm(`Delete ${name}?`)) return
-    await studentsApi.delete(id)
-    load()
+  // UPDATE - Edit student
+  const handleEdit = (student) => {
+    setEditingStudent(student)
+    setEditForm({
+      name: student.name,
+      student_id: student.student_id,
+      class_name: student.class_name,
+      email: student.email || '',
+      phone: student.phone || ''
+    })
+    setUpdateError('')
+    setShowEditModal(true)
   }
 
-  // Export per class
+  const handleUpdate = async () => {
+    if (!editForm.name || !editForm.student_id || !editForm.class_name) {
+      setUpdateError('Name, Student ID, and Class are required')
+      return
+    }
+    setUpdating(true)
+    setUpdateError('')
+    try {
+      console.log('Updating student:', editingStudent.id, editForm)
+      await studentsApi.update(editingStudent.id, editForm)
+      setShowEditModal(false)
+      setEditingStudent(null)
+      setEditForm({})
+      load() // Refresh the list
+    } catch (e) {
+      console.error('Update error:', e)
+      setUpdateError(e.response?.data?.detail || 'Error updating student')
+    } finally { setUpdating(false) }
+  }
+
+  // DELETE - Remove student
+  const handleDelete = async (id, name) => {
+    if (!confirm(`Delete student "${name}"? This action cannot be undone.`)) return
+    try {
+      await studentsApi.delete(id)
+      load()
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Error deleting student')
+    }
+  }
+
   const handleExportClass = async (className) => {
     setExporting(className)
     try {
@@ -86,7 +130,6 @@ export default function Students() {
     } finally { setExporting('') }
   }
 
-  // Export all students list
   const handleExportStudents = () => {
     const rows = [['Name', 'Student ID', 'Class', 'Email', 'Phone', 'Face Enrolled']]
     filtered.forEach(s => rows.push([s.name, s.student_id, s.class_name, s.email || '', s.phone || '', s.enrolled ? 'Yes' : 'No']))
@@ -198,50 +241,73 @@ export default function Students() {
           </div>
 
           <div className="card p-0 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  {['Student', 'ID', 'Class', 'Contact', 'Face', 'Actions'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs text-text-dim uppercase tracking-wider font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-text-dim text-xs">Loading...</td></tr>}
-                {!loading && filtered.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-text-dim text-xs">No students found</td></tr>}
-                {filtered.map(s => (
-                  <tr key={s.id} className="border-b border-border hover:bg-border/30 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-600">
-                          {s.name.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="font-medium text-text">{s.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-text-dim text-xs">{s.student_id}</td>
-                    <td className="px-4 py-3"><span className="badge-blue">{s.class_name}</span></td>
-                    <td className="px-4 py-3 text-xs text-text-dim">{s.email || '—'}</td>
-                    <td className="px-4 py-3">
-                      {s.enrolled
-                        ? <span className="badge-success"><CheckCircle size={10} className="mr-1" />Enrolled</span>
-                        : <span className="badge-muted">Not enrolled</span>
-                      }
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setEnrollId(s.id)} className="btn-ghost text-xs px-2.5 py-1.5">
-                          <Camera size={13} /> Enroll
-                        </button>
-                        <button onClick={() => handleDelete(s.id, s.name)} className="btn-danger text-xs px-2.5 py-1.5">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-surface/50">
+                    {['Student', 'ID', 'Class', 'Email', 'Phone', 'Face', 'Actions'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs text-text-dim uppercase tracking-wider font-medium">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {loading && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-text-dim text-xs">Loading...</td>
+                    </tr>
+                  )}
+                  {!loading && filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center text-text-dim text-xs">No students found</td>
+                    </tr>
+                  )}
+                  {filtered.map(s => (
+                    <tr key={s.id} className="border-b border-border hover:bg-border/30 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-xs font-600">
+                            {s.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-medium text-text">{s.name}</span>
+                        </div>
+                       </td>
+                      <td className="px-4 py-3 font-mono text-text-dim text-xs">{s.student_id}</td>
+                      <td className="px-4 py-3"><span className="badge-blue">{s.class_name}</span></td>
+                      <td className="px-4 py-3 text-xs text-text-dim">{s.email || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-text-dim">{s.phone || '—'}</td>
+                      <td className="px-4 py-3">
+                        {s.enrolled
+                          ? <span className="badge-success"><CheckCircle size={10} className="mr-1" />Enrolled</span>
+                          : <span className="badge-muted">Not enrolled</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => handleEdit(s)} 
+                            className="btn-ghost text-xs px-2.5 py-1.5"
+                          >
+                            <Edit size={13} /> Edit
+                          </button>
+                          <button 
+                            onClick={() => setEnrollId(s.id)} 
+                            className="btn-ghost text-xs px-2.5 py-1.5"
+                          >
+                            <Camera size={13} /> Enroll
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(s.id, s.name)} 
+                            className="btn-danger text-xs px-2.5 py-1.5"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
@@ -257,7 +323,6 @@ export default function Students() {
           {classSummary.map(c => (
             <div key={c.class_name} className="card">
               <div className="flex items-center justify-between">
-                {/* Left: class info */}
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent font-display font-700 text-lg">
                     {c.class_name.replace(/[^A-Z0-9]/gi, '').slice(0, 2).toUpperCase()}
@@ -269,8 +334,6 @@ export default function Students() {
                     </p>
                   </div>
                 </div>
-
-                {/* Right: export button */}
                 <button
                   onClick={() => handleExportClass(c.class_name)}
                   disabled={exporting === c.class_name}
@@ -283,7 +346,6 @@ export default function Students() {
                 </button>
               </div>
 
-              {/* Stats row */}
               <div className="grid grid-cols-3 gap-3 mt-4">
                 <div className="bg-bg border border-border rounded-xl px-4 py-3 text-center">
                   <p className="text-2xl font-display font-700 text-text">{c.total}</p>
@@ -299,7 +361,6 @@ export default function Students() {
                 </div>
               </div>
 
-              {/* Progress bar */}
               <div className="mt-4">
                 <div className="flex justify-between text-xs text-text-dim mb-1.5">
                   <span>Face enrollment progress</span>
@@ -313,7 +374,6 @@ export default function Students() {
                 </div>
               </div>
 
-              {/* Student list for this class */}
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-xs text-text-dim uppercase tracking-wider font-medium mb-3">Students in this class</p>
                 <div className="flex flex-wrap gap-2">
@@ -339,7 +399,7 @@ export default function Students() {
         </div>
       )}
 
-      {/* Add Student Modal */}
+      {/* Add Student Modal - CREATE */}
       {showForm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6 animate-slide-up">
@@ -382,6 +442,87 @@ export default function Students() {
               <button onClick={() => { setShowForm(false); setForm(EMPTY_FORM) }} className="btn-ghost flex-1 justify-center">Cancel</button>
               <button onClick={handleSubmit} disabled={saving} className="btn-primary flex-1 justify-center">
                 {saving ? 'Saving...' : 'Add Student'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Student Modal - UPDATE */}
+      {showEditModal && editingStudent && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-border rounded-2xl w-full max-w-md p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-display font-600 text-text">Edit Student</h2>
+              <button onClick={() => { setShowEditModal(false); setEditingStudent(null); setEditForm({}) }} className="btn-ghost p-1.5">
+                <X size={16} />
+              </button>
+            </div>
+            {updateError && (
+              <div className="mb-4 p-3 bg-danger/10 border border-danger/20 rounded-lg text-danger text-sm">
+                {updateError}
+              </div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="label">Full Name *</label>
+                <input 
+                  className="input" 
+                  placeholder="e.g. Sokha Chan" 
+                  value={editForm.name} 
+                  onChange={e => setEditForm({...editForm, name: e.target.value})} 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Student ID *</label>
+                  <input 
+                    className="input" 
+                    placeholder="e.g. STU001" 
+                    value={editForm.student_id} 
+                    onChange={e => setEditForm({...editForm, student_id: e.target.value})} 
+                  />
+                </div>
+                <div>
+                  <label className="label">Class *</label>
+                  <select 
+                    className="input" 
+                    value={editForm.class_name} 
+                    onChange={e => setEditForm({...editForm, class_name: e.target.value})}
+                  >
+                    {classes.length
+                      ? classes.map(c => <option key={c.class_name} value={c.class_name}>{c.class_name}</option>)
+                      : ['Class A','Class B','Class C'].map(c => <option key={c} value={c}>{c}</option>)
+                    }
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="label">Email</label>
+                <input 
+                  className="input" 
+                  type="email" 
+                  placeholder="Optional" 
+                  value={editForm.email} 
+                  onChange={e => setEditForm({...editForm, email: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="label">Phone</label>
+                <input 
+                  className="input" 
+                  placeholder="Optional" 
+                  value={editForm.phone} 
+                  onChange={e => setEditForm({...editForm, phone: e.target.value})} 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => { setShowEditModal(false); setEditingStudent(null); setEditForm({}) }} className="btn-ghost flex-1 justify-center">
+                Cancel
+              </button>
+              <button onClick={handleUpdate} disabled={updating} className="btn-primary flex-1 justify-center">
+                {updating ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin mr-2" /> Updating...</> : <><Save size={14} /> Update Student</>}
               </button>
             </div>
           </div>

@@ -5,7 +5,7 @@ const api = axios.create({ baseURL: '/api' })
 export const studentsApi = {
   list:    (cls) => api.get('/students', { params: cls ? { class_name: cls } : {} }),
   create:  (data) => api.post('/students', data),
-  update:  (id, data) => api.put(`/students/${id}`, data),
+  update:  (id, data) => api.put(`/students/${id}`, data),  // Make sure this line exists
   delete:  (id) => api.delete(`/students/${id}`),
   enroll:  (id, file) => {
     const fd = new FormData(); fd.append('file', file)
@@ -13,7 +13,6 @@ export const studentsApi = {
   },
   classes: () => api.get('/students/classes/list'),
 }
-
 export const attendanceApi = {
   scan:    (file, className) => {
     const fd = new FormData(); fd.append('file', file); fd.append('class_name', className)
@@ -39,4 +38,6 @@ export const scheduleApi = {
   add:    (class_name) => api.post(`/students/schedules?class_name=${class_name}`),
   delete: (id) => api.delete(`/students/schedules/${id}`),
 }
+
+
 export default api
