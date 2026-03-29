@@ -33,7 +33,7 @@ class Student(Base):
     enrolled    = Column(Boolean, default=False)
     created_at  = Column(DateTime, default=datetime.utcnow)
 
-    records = relationship("AttendanceRecord", back_populates="student")
+    records = relationship("AttendanceRecord", back_populates="student", cascade="all, delete-orphan")
 
 
 class AttendanceRecord(Base):
@@ -139,3 +139,5 @@ def get_stats(db: Session):
         "attendance_rate": round((present / total_students * 100) if total_students else 0, 1),
         "weekly":         weekly
     }
+
+

@@ -133,3 +133,66 @@ def list_classes(db: Session = Depends(get_db)):
     from database import ClassSchedule
     classes = db.query(ClassSchedule).all()
     return [{"id": c.id, "class_name": c.class_name, "on_time_by": c.on_time_by, "late_by": c.late_by} for c in classes]
+
+
+
+
+# ── Schedule Management ───────────────────────────────────────────────────────
+
+class ScheduleUpdate(BaseModel):
+    on_time_by: str   # e.g. "08:00"
+    late_by: str      # e.g. "08:30"
+
+@router.get("/schedules/all")
+def get_all_schedules(db: Session = Depends(get_db)):
+    from database import ClassSchedule
+    schedules = db.query(ClassSchedule).all()
+    return [
+        {
+            "id": s.id,
+            "class_name": s.class_name,
+            "on_time_by": s.on_time_by,
+            "late_by": s.late_by
+        }
+        for s in schedules
+    ]
+
+@router.put("/schedules/{schedule_id}")
+def update_schedule(schedule_id: int, data: ScheduleUpdate, db: Session = Depends(get_db)):
+    from database import ClassSchedule
+    s = db.query(ClassSchedule).filter(ClassSchedule.id == schedule_id).first()
+    if not s:
+        raise HTTPException(404, "Schedule not found")
+    # Validate time format HH:MM
+    import re
+    pattern = r"^([01]\d|2[0-3]):[0-5]\d$"
+    if not re.match(pattern, data.on_time_by) or not re.match(pattern, data.late_by):
+        raise HTTPException(400, "Invalid time format. Use HH:MM (e.g. 08:00)")
+    if data.on_time_by >= data.late_by:
+        raise HTTPException(400, "On-time cutoff must be before late cutoff")
+    s.on_time_by = data.on_time_by
+    s.late_by    = data.late_by
+    db.commit()
+    return {"ok": True, "class_name": s.class_name, "on_time_by": s.on_time_by, "late_by": s.late_by}
+
+@router.post("/schedules")
+def add_schedule(class_name: str, db: Session = Depends(get_db)):
+    from database import ClassSchedule
+    existing = db.query(ClassSchedule).filter(ClassSchedule.class_name == class_name).first()
+    if existing:
+        raise HTTPException(400, "Class already exists")
+    s = ClassSchedule(class_name=class_name)
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return {"id": s.id, "class_name": s.class_name, "on_time_by": s.on_time_by, "late_by": s.late_by}
+
+@router.delete("/schedules/{schedule_id}")
+def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
+    from database import ClassSchedule
+    s = db.query(ClassSchedule).filter(ClassSchedule.id == schedule_id).first()
+    if not s:
+        raise HTTPException(404, "Schedule not found")
+    db.delete(s)
+    db.commit()
+    return {"ok": True}

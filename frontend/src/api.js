@@ -33,5 +33,10 @@ export const reportsApi = {
   summary: (date) => api.get('/reports/summary', { params: { target_date: date } }),
   export:  (params) => api.get('/reports/export', { params, responseType: 'blob' }),
 }
-
+export const scheduleApi = {
+  list:   () => api.get('/students/schedules/all'),
+  update: (id, data) => api.put(`/students/schedules/${id}`, data),
+  add:    (class_name) => api.post(`/students/schedules?class_name=${class_name}`),
+  delete: (id) => api.delete(`/students/schedules/${id}`),
+}
 export default api
