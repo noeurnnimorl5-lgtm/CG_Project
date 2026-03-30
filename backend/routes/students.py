@@ -30,7 +30,7 @@ class StudentCreate(BaseModel):
 
 class StudentUpdate(BaseModel):
     name: Optional[str] = None
-    class_name: Optional[str] = None
+    class_name: Optional[str] = None  
     email: Optional[str] = None
     phone: Optional[str] = None
 
@@ -43,7 +43,6 @@ def student_to_dict(s: Student) -> dict:
         "class_name": s.class_name,
         "email": s.email,
         "phone": s.phone,
-        "photo_path": s.photo_path,
         "enrolled": s.enrolled,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
@@ -80,12 +79,24 @@ def get_student(student_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{student_id}")
 def update_student(student_id: int, data: StudentUpdate, db: Session = Depends(get_db)):
+    from database import AttendanceRecord
     s = db.query(Student).filter(Student.id == student_id).first()
     if not s:
         raise HTTPException(404, "Student not found")
+
+    old_class = s.class_name
+
     for k, v in data.model_dump(exclude_none=True).items():
         setattr(s, k, v)
     db.commit()
+
+    # ✅ If class changed, update all attendance records too
+    if data.class_name and data.class_name != old_class:
+        db.query(AttendanceRecord)\
+          .filter(AttendanceRecord.student_id == student_id)\
+          .update({"class_name": data.class_name})
+        db.commit()
+
     return student_to_dict(s)
 
 
@@ -98,34 +109,34 @@ def delete_student(student_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
-
 @router.post("/{student_id}/enroll")
 async def enroll_student(
     student_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """Register a student's face from uploaded photo or webcam capture."""
     s = db.query(Student).filter(Student.id == student_id).first()
     if not s:
         raise HTTPException(404, "Student not found")
 
+    # Read image into memory only — never save to disk
     image_bytes = await file.read()
 
-    # Save photo
-    photo_path = f"{UPLOAD_DIR}/{student_id}_{file.filename}"
-    with open(photo_path, "wb") as f:
-        f.write(image_bytes)
-    s.photo_path = photo_path
-    db.commit()
-
-    # Extract embedding
+    # Extract embedding first
     embedding = extract_embedding(image_bytes)
     if not embedding:
-        raise HTTPException(422, "No face detected in the image. Please use a clear frontal photo.")
+        raise HTTPException(422, "No face detected. Please use a clear frontal photo.")
 
+    # Delete old photo if exists
+    if s.photo_path and os.path.exists(s.photo_path):
+        os.remove(s.photo_path)
+
+    # Save ONLY the embedding — no photo stored
+    s.photo_path = None
+    db.commit()
     set_student_embedding(db, student_id, embedding)
-    return {"ok": True, "message": "Face enrolled successfully", "student": student_to_dict(s)}
+
+    return {"ok": True, "message": "Face enrolled — image deleted for privacy"}
 
 
 @router.get("/classes/list")
